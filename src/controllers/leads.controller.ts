@@ -237,7 +237,10 @@ export async function updateLeadController(req: Request, res: Response, next: Ne
       `UPDATE leads SET ${fields.join(', ')} WHERE id = $${idx} RETURNING id, status, note, updated_at`,
       values
     );
-    return res.status(200).json({ data: result.rows[0] });
+    
+    return res.status(200).json({
+      data: result.rows[0],
+    });
   } catch (err) {
     next(err);
   }

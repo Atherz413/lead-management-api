@@ -1,6 +1,7 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { query } from '../db';
 import { AuthRequest } from '../middleware/authenticate';
+import { assignLead } from '../services/leads.service';
 
 export const getLeads = async (req: AuthRequest, res: Response): Promise<void> => {
   const { status, source, page = '1', limit = '20' } = req.query as Record<string, string>;
@@ -160,3 +161,84 @@ export const getLeadById = async (req: AuthRequest, res: Response): Promise<void
     res.status(500).json({ error: 'Internal server error' });
   }
 };
+
+export async function assignLeadController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const leadId = parseInt(req.params.id as string);
+    const { to_owner_id, reason } = req.body;
+    const transferredBy = (req as any).user.id;
+
+    const result = await assignLead({
+      leadId,
+      toOwnerId: to_owner_id,
+      transferredBy,
+      reason,
+    });
+
+    if (result.error) {
+      return res.status(result.status!).json({
+        error: result.error,
+        code: result.code,
+      });
+    }
+
+    return res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateLeadController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const leadId = parseInt(req.params.id as string);
+    const userId = (req as any).user.id;
+    const userRole = (req as any).user.role;
+    const { status, note } = req.body;
+
+    // เช็คว่า lead มีอยู่จริง + เช็ค ownership ถ้าเป็น sales
+    const leadResult = await query(
+      `SELECT id, owner_id FROM leads WHERE id = $1`,
+      [leadId]
+    );
+
+    if (leadResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Lead not found', code: 'LEAD_NOT_FOUND' });
+    }
+
+    const lead = leadResult.rows[0];
+
+    // sales แก้ได้แค่ lead ของตัวเอง
+    if (userRole === 'sales' && lead.owner_id !== userId) {
+      return res.status(403).json({ error: 'Forbidden', code: 'FORBIDDEN' });
+    }
+
+    // build SET clause เฉพาะ field ที่ส่งมา
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    let idx = 1;
+
+    if (status !== undefined) {
+      fields.push(`status = $${idx++}`);
+      values.push(status);
+    }
+    if (note !== undefined) {
+      fields.push(`note = $${idx++}`);
+      values.push(note);
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ error: 'No fields to update', code: 'NO_FIELDS' });
+    }
+
+    fields.push(`updated_at = NOW()`);
+    values.push(leadId);
+
+    const result = await query(
+      `UPDATE leads SET ${fields.join(', ')} WHERE id = $${idx} RETURNING id, status, note, updated_at`,
+      values
+    );
+    return res.status(200).json({ data: result.rows[0] });
+  } catch (err) {
+    next(err);
+  }
+}

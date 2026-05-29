@@ -1,6 +1,7 @@
 import express from 'express';
 import authRouter from './routes/auth';
 import leadsRouter from './routes/leads';
+import usersRouter from './routes/users';
 
 const app = express();
 app.use(express.json());
@@ -13,6 +14,6 @@ app.get('/health', (_req, res) => {
 // Routes จะ mount ที่นี่ใน D16
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/leads', leadsRouter);
-// app.use('/api/v1/users', usersRouter);
+app.use('/api/v1/users', usersRouter);
 
 export default app;

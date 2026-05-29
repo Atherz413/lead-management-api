@@ -212,6 +212,10 @@ export async function updateLeadController(req: Request, res: Response, next: Ne
       return res.status(403).json({ error: 'Forbidden', code: 'FORBIDDEN' });
     }
 
+    if (status !== undefined && !['new', 'contacted', 'qualified', 'closed_won', 'closed_lost'].includes(status)) {
+      return res.status(400).json({ error: ' Invalid status value', code: 'INVALID_STATUS'});
+    }
+
     // build SET clause เฉพาะ field ที่ส่งมา
     const fields: string[] = [];
     const values: unknown[] = [];

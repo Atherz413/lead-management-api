@@ -113,6 +113,127 @@ describe('PATCH /api/v1/leads/:id/assign', () => {
     expect(res.status).toBe(401);
   });
 
+  test('to_owner_id ไม่มีใน DB → 404 + INVALID_TARGET_OWNER', async () => {
+      const admin = await createUser('admin', 'admin@test.com');
+      const sales = await createUser('sales', 'sales@test.com');
+      const lead = await createLead();
+      const token = await loginUser('admin@test.com');
+      
+
+      const res = await request(app)
+        .patch(`/api/v1/leads/${lead.id}/assign`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ to_owner_id: 99999 }) 
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe('INVALID_TARGET_OWNER');
+  });
+
+  test('to_owner_id เป็น admin ไม่ใช่ sales → 404 + INVALID_TARGET_OWNER', async () => {
+      const admin = await createUser('admin', 'admin@test.com');
+      const sales = await createUser('sales', 'sales@test.com');
+      const lead = await createLead();
+      const token = await loginUser('admin@test.com');
+      
+
+      const res = await request(app)
+        .patch(`/api/v1/leads/${lead.id}/assign`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ to_owner_id: admin.id, reason: 'ABC' })
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe('INVALID_TARGET_OWNER');
+  });
+
+  test('lead id ไม่มีใน DB → 404', async () => {
+      const admin = await createUser('admin', 'admin@test.com');
+      const sales = await createUser('sales', 'sales@test.com');
+      const token = await loginUser('admin@test.com');
+      
+
+      const res = await request(app)
+        .patch(`/api/v1/leads/${99999}/assign`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ to_owner_id: sales.id, reason: 'test assign' });
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe('LEAD_NOT_FOUND');
+  });
+
+});
+
+describe('PATCH /api/v1/leads/:id', () => {
+
+  test('อัปเดต status สำเร็จ → 200', async () => {
+    const sales = await createUser('sales', 'sales@test.com');
+    const lead = await createLead(sales.id);
+    const token = await loginUser('sales@test.com');
+
+    const res = await request(app)
+      .patch(`/api/v1/leads/${lead.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'contacted' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('contacted');
+  });
+
+  test('ไม่ส่ง field อะไรเลย → 400', async () => {
+    const sales = await createUser('sales', 'sales@test.com');
+    const lead = await createLead(sales.id);
+    const token = await loginUser('sales@test.com');
+
+    const res = await request(app)
+      .patch(`/api/v1/leads/${lead.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('NO_FIELDS');
+  });
+
+  test('ส่ง status ที่ไม่อยู่ใน enum → 400', async () => {
+    const sales = await createUser('sales', 'sales@test.com');
+    const lead = await createLead(sales.id);
+    const token = await loginUser('sales@test.com');
+
+    const res = await request(app)
+      .patch(`/api/v1/leads/${lead.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'flying' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_STATUS');
+  });
+
+  test('sales อัปเดต lead ของคนอื่น → 403', async () => {
+    const sales1 = await createUser('sales', 'sales1@test.com');
+    const sales2 = await createUser('sales', 'sales2@test.com');
+    const lead = await createLead(sales2.id);
+    const token = await loginUser('sales1@test.com');
+
+    const res = await request(app)
+      .patch(`/api/v1/leads/${lead.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'contracted' });
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+  });
+
+  test('lead id ไม่มีใน DB → 404', async () => {
+    const sales = await createUser('sales', 'sales@test.com');
+    const token = await loginUser('sales@test.com');
+
+    const res = await request(app)
+      .patch(`/api/v1/leads/${99999}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'contracted' });
+
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe('LEAD_NOT_FOUND');
+
+  });
 });
 
 describe('GET /api/v1/leads', () => {
@@ -168,7 +289,7 @@ describe('GET /api/v1/leads/:id', () => {
   test('sales ดู lead ของคนอื่น → 403', async () => {
     const admin = await createUser('admin', 'admin@test.com');
     const sales = await createUser('sales', 'sales@test.com');
-    const lead = await createLead(admin.id); // lead เป็นของ admin
+    const lead = await createLead(admin.id);
     const token = await loginUser('sales@test.com');
 
     const res = await request(app)
@@ -180,34 +301,57 @@ describe('GET /api/v1/leads/:id', () => {
 
 });
 
-describe('PATCH /api/v1/leads/:id', () => {
+describe('GET /api/v1/leads - filter', () => {
 
-  test('อัปเดต status สำเร็จ → 200', async () => {
-    const sales = await createUser('sales', 'sales@test.com');
-    const lead = await createLead(sales.id);
-    const token = await loginUser('sales@test.com');
+  test('filter ?status=new → คืนแค่ leads ที่ status ตรง', async () => {
+    const admin = await createUser('admin', 'admin@test.com');
+    const token = await loginUser('admin@test.com');
+
+    await createLead();  // status = new (default)
+    await createLead();  // status = new
+    await db.query(
+    `INSERT INTO leads (name, source, status) VALUES ('Contacted Lead', 'web', 'contacted')`
+    );
 
     const res = await request(app)
-      .patch(`/api/v1/leads/${lead.id}`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ status: 'contacted' });
+    .get('/api/v1/leads?status=new')
+    .set('Authorization', `Bearer ${token}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.data.status).toBe('contacted');
+    expect(res.body.pagination.total).toBe(2);
+    expect(res.body.data.every((l: any) => l.status === 'new')).toBe(true);
+
   });
 
-  test('ไม่ส่ง field อะไรเลย → 400', async () => {
+});
+
+describe('GET /api/v1/users', () => {
+
+  test('admin ดูได้ → 200', async () => {
+    const admin = await createUser('admin', 'admin@test.com');
+    const token = await loginUser('admin@test.com');
+
+    await createUser('sales', 'sale1@test.com');
+    await createUser('sales', 'sale2@test.com');
+
+    const res = await request(app)
+      .get('/api/v1/users')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(2); // 2 users
+
+  });
+
+  test('sales เข้าไม่ได้ → 403', async () => {
     const sales = await createUser('sales', 'sales@test.com');
-    const lead = await createLead(sales.id);
     const token = await loginUser('sales@test.com');
 
     const res = await request(app)
-      .patch(`/api/v1/leads/${lead.id}`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({});
+      .get('/api/v1/users')
+      .set('Authorization', `Bearer ${token}`);
 
-    expect(res.status).toBe(400);
-    expect(res.body.code).toBe('NO_FIELDS');
+    expect(res.status).toBe(403);
   });
 
 });

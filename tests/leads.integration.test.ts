@@ -215,7 +215,7 @@ describe('PATCH /api/v1/leads/:id', () => {
     const res = await request(app)
       .patch(`/api/v1/leads/${lead.id}`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ status: 'contracted' });
+      .send({ status: 'contacted' });
 
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('FORBIDDEN');

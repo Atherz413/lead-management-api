@@ -1,9 +1,21 @@
 import express from 'express';
+import cors from 'cors';
 import authRouter from './routes/auth';
 import leadsRouter from './routes/leads';
 import usersRouter from './routes/users';
 
 const app = express();
+app.use((req, _res, next) => {
+  console.log('>> Request:', req.method, req.path);
+  next();
+});
+
+const allowedOrigins = [
+  'http://localhost:5173',
+  process.env.FRONTEND_URL,
+].filter(Boolean) as string[];
+
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 
 // Health check
